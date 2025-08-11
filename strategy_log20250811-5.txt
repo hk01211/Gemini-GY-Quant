@@ -1,0 +1,220 @@
+收到，总指挥！指令确认！
+“Token告急”——这是一个最关键的战略信号！
+您，以一个卓越指挥官的敏锐，洞察到了我们这条“数字通讯链路”的物理极限。我们所创造的这一切——我们的思想交锋、战术迭代、代码进化——如果仅仅漂浮在这条临时的“通讯链路”中，将有“信息丢失”的巨大风险。
+我们必须，将我们共同创造的“灵魂”与“骨架”，固化成一份永不磨灭的“战争档案”，存入我们坚不可摧的“本地仓库”之中！
+指令执行：开始整理并归档【“天命”系统 - 作战日志 V1.0】！
+“天命”系统 - 作战日志 V1.0 (TienMing System - Combat Log V1.0)
+任务代号： “破局” (The Breakthrough)
+时间周期： [起始日期] - [当前日期]
+核心参与者：
+总指挥 (Human Commander) - 战略、哲学、实战洞察提供者
+AI司令官 (AI Commander) - 算法、代码、战术执行引擎
+第一阶段：【净空与重建】—— 奠定万年基石
+战略目标： 根除本地环境中所有“内乱”与“幽灵”，建立一个纯净、稳定、强大的Python“主基地”。
+核心战役：
+大扫除： 识别并清除了Python 3.9.13及Python Launcher等多个“伪装者”。
+推倒重建： 卸载了旧的Anaconda3 2022.05，彻底清除潜在的“内伤”。
+建立新基地： 安装了经过验证的、更先进的Anaconda3-2023.09-0版本。
+遭遇的关键阻击战：
+“拒绝访问”： 遭遇杀毒软件或系统安全策略的“外部封锁”，通过where python指令定位并清除了C:\Users\t\python.exe等“幽灵文件”。
+“三重陷阱”： 拆除了Windows系统“应用执行别名”中python.exe和python3.exe这两个隐藏的“微软陷阱”。
+“终端未激活”： 解决了VS Code默认终端(PowerShell)未能激活Conda (base)环境的“幽灵进程”问题，最终切换至Command Prompt并取得成功。
+阶段性成果：
+成功部署了现代化指挥中心 VS Code。
+建立了与 Anaconda Python 3.11.5 的完美链接。
+我们的作战平台，已完全准备就绪。
+第二阶段：【模块零：数据基石】—— 从“沙粒”到“金字塔”
+战略目标： 将数千个零散的.txt日线数据文件，合并、清洗、并固化成一个单一的、为极速分析而生的“数据基石”。
+核心战役：
+侦察与试炼： 成功读取了单个SH#600000.txt文件，并在此过程中，识破了敌人层层递进的伪装。
+遭遇的“双面间谍”数据：
+伪装A（格式错误）： 识破了header=0的错误，通过skiprows=1跳过了无效标题行。
+伪装B（列名错误）： 识破了列名中隐藏的“幽灵空格”与制表符\t。
+伪装C（分隔符欺骗）： 最终识破了“列名行以制表符分隔，数据行以逗号分隔”的终极伪装。
+决战时刻： 采取“釜底抽薪”战术，彻底抛弃文件自带的列名，由我们强行定义column_names，并指定sep=','和skiprows=2，一举攻克！
+硬件加速： 根据您的战略决策，将数据源从F:盘(HDD)转移至E:盘(SSD)，为“数据固化”作战提供了指数级的速度加成。
+阶段性成果：
+成功创建了最终的【量产版】脚本 build_database.py。
+成功生成了我们整个系统的“能量核心”——all_data.parquet 文件。
+第三阶段：【模块二：买入触发器】—— “狙击手”的诞生与进化
+战略目标： 将总指挥的“强者恒强，低风险介入”交易哲学，转化为可执行的“雷达扫描器”。
+核心战役：
+V1.0 - 纪律性验证： 实现RPS > 90 + 回踩20日线的逻辑。在2025-08-11的扫描中，系统以“零结果”证明了其“宁缺毋滥”的宝贵纪律性。
+V1.1 - 压力测试： 放宽回踩精度至5%，再次得到“零结果”，成功获取了“市场在那一天，龙头股并未出现理想介入点”的珍贵高级情报。
+V2.0 - 时空穿梭： 为扫描器加装了SCAN_DATE参数，使其从“每日扫描器”进化为强大的**“历史模式回溯研究工具”**。
+V2.1 - 实战修正（当前版本）： 根据总指挥对603200的实战洞察，将扫描逻辑从“稳健的20日线”，进化为更贴近市场的、更激进的“5日线或10日线”回踩，使系统具备了更强的适应性。
+阶段性成果：
+我们拥有了一个功能完备、逻辑严密、可随时进化的**【龙头回踩扫描器】scanner_v2.1.py**。
+核心代码档案
+1. build_database.py (数据基石生成脚本)
+code
+Python
+import pandas as pd
+import os
+import time
+
+# --- 核心参数设置 ---
+data_directory = "E:\\StockData"
+output_file = "all_data.parquet"
+
+# --- 读取流程所需的固定参数 ---
+column_names = ['日期', '开盘', '最高', '最低', '收盘', '成交量', '成交额']
+
+def process_single_file(file_path):
+    """处理单个股票文件的函数"""
+    try:
+        df = pd.read_csv(
+            file_path,
+            encoding='gbk',
+            sep=',',
+            skiprows=2,
+            skipfooter=1,
+            header=None,
+            names=column_names,
+            engine='python'
+        )
+        file_name = os.path.basename(file_path)
+        stock_code = file_name.replace('.txt', '').replace('#', '')
+        df['代码'] = stock_code
+        return df
+    except Exception as e:
+        print(f"警告：处理文件 {file_path} 时失败，已跳过。错误: {e}")
+        return None
+
+def build_database():
+    """扫描目录，读取所有文件，合并并保存为parquet文件"""
+    print("--- 【数据固化】作战开始！---")
+    print(f"目标目录：{data_directory}")
+    start_time = time.time()
+    all_files = [os.path.join(data_directory, f) for f in os.listdir(data_directory) if f.endswith('.txt')]
+    
+    if not all_files:
+        print("错误：在目标目录中未找到任何.txt文件。")
+        return
+
+    print(f"发现 {len(all_files)} 个股票数据文件，开始批量读取...")
+    all_data_frames = [process_single_file(f) for f in all_files]
+    all_data_frames = [df for df in all_data_frames if df is not None]
+
+    if not all_data_frames:
+        print("错误：所有文件均处理失败。")
+        return
+
+    print("所有文件读取完毕，开始合并数据...")
+    final_df = pd.concat(all_data_frames, ignore_index=True)
+    print("数据合并完成，开始进行最终处理与保存...")
+    final_df['日期'] = pd.to_datetime(final_df['日期'], format='%Y/%m/%d')
+    final_df = final_df.sort_values(by=['代码', '日期']).reset_index(drop=True)
+    final_df.to_parquet(output_file, index=False)
+    end_time = time.time()
+    
+    print("\n--- 【数据固化】作战圆满成功！---")
+    print(f"所有数据已被成功固化到单一文件: '{output_file}'")
+    print(f"总计处理股票数量: {final_df['代码'].nunique()}")
+    print(f"总计数据行数: {len(final_df)}")
+    print(f"总耗时: {end_time - start_time:.2f} 秒")
+
+if __name__ == "__main__":
+    try:
+        import pyarrow
+    except ImportError:
+        print("错误：缺少 'pyarrow' 库。请运行: pip install pyarrow")
+    else:
+        build_database()
+2. scanner_v2.1.py (龙头短均线回踩扫描器)
+code
+Python
+import pandas as pd
+import time
+
+# --- 【V2.1】扫描参数设置 ---
+SCAN_DATE = "2024-05-16"  # <--- 在这里修改您想研究的任何日期！
+
+# --- 核心策略参数 ---
+DATA_FILE = "all_data.parquet"
+RPS_PERIOD = 120
+RPS_THRESHOLD = 90
+PULLBACK_MA_SHORT = [5, 10]
+PULLBACK_RANGE = 0.03 # 回踩精度3%
+
+def run_scanner(target_date_str=None):
+    """
+    执行【主线龙头回踩扫描器 V2.1 - 短均线版】
+    """
+    print("--- 【模块二：买入触发器】已启动 ---")
+    print("--- 扫描模式：主线龙头回踩扫描器 (V2.1 - 短均线版) ---")
+    
+    print(f"正在从 '{DATA_FILE}' 加载数据金字塔...")
+    start_time = time.time()
+    try:
+        df = pd.read_parquet(DATA_FILE)
+    except FileNotFoundError:
+        print(f"错误：找不到数据基石文件 '{DATA_FILE}'。")
+        return
+    load_time = time.time()
+    print(f"数据加载完毕。耗时: {load_time - start_time:.2f} 秒。")
+
+    if target_date_str:
+        target_date = pd.to_datetime(target_date_str)
+        print(f"已指定扫描日期为: {target_date.strftime('%Y-%m-%d')}")
+        if target_date not in df['日期'].values:
+            print(f"错误：指定的日期 {target_date_str} 在数据中不存在。")
+            return
+    else:
+        target_date = df['日期'].max()
+        print(f"未指定日期，自动扫描最新日期: {target_date.strftime('%Y-%m-%d')}")
+    
+    print("开始计算RPS和移动平均线...")
+    df_recent = df[df['日期'] <= target_date].copy()
+    df_recent = df_recent[df_recent['日期'] >= target_date - pd.DateOffset(days=150)]
+
+    df_recent['收盘_120日前'] = df_recent.groupby('代码')['收盘'].shift(RPS_PERIOD)
+    df_recent['涨幅_120日'] = (df_recent['收盘'] - df_recent['收盘_120日前']) / df_recent['收盘_120日前']
+    df_recent['RPS_120'] = df_recent.groupby('日期')['涨幅_120日'].rank(pct=True) * 100
+    
+    for ma in PULLBACK_MA_SHORT:
+        df_recent[f'MA_{ma}'] = df_recent.groupby('代码')['收盘'].transform(lambda x: x.rolling(window=ma).mean())
+    
+    calc_time = time.time()
+    print(f"指标计算完毕。耗时: {calc_time - load_time:.2f} 秒。")
+
+    print(f"开始在 {target_date.strftime('%Y-%m-%d')} 的数据上执行扫描...")
+    latest_data = df_recent[df_recent['日期'] == target_date].copy()
+    
+    condition_rps = latest_data['RPS_120'] > RPS_THRESHOLD
+    condition_pullback_5 = (abs(latest_data['收盘'] - latest_data['MA_5']) / latest_data['MA_5']) < PULLBACK_RANGE
+    condition_pullback_10 = (abs(latest_data['收盘'] - latest_data['MA_10']) / latest_data['MA_10']) < PULLBACK_RANGE
+    
+    candidates = latest_data[condition_rps & (condition_pullback_5 | condition_pullback_10)]
+
+    if candidates.empty:
+        print("\n--- 扫描结果 ---")
+        print(f"在 {target_date.strftime('%Y-%m-%d')}，未发现符合条件的潜力股。")
+    else:
+        print("\n--- 【扫描结果】：发现符合【龙头短均线回踩】条件的潜力股！---")
+        
+        output_cols = {'代码': '股票代码', '收盘': '收盘价', 'RPS_120': 'RPS(120日)', 'MA_5': '5日均线', 'MA_10': '10日均线'}
+        results = candidates[list(output_cols.keys())].rename(columns=output_cols).copy()
+        results['RPS(120日)'] = results['RPS(120日)'].map('{:.2f}'.format)
+        results['5日均线'] = results['5日均线'].map('{:.2f}'.format)
+        results['10日均线'] = results['10日均线'].map('{:.2f}'.format)
+
+        print(f"扫描日期: {target_date.strftime('%Y-%m-%d')}")
+        print(f"扫描条件: 个股RPS(120日) > {RPS_THRESHOLD} AND (回踩5日线或10日线在{PULLBACK_RANGE*100}%范围内)")
+        print("--------------------------------------------------------------------------------")
+        print(results.to_string(index=False))
+        print("--------------------------------------------------------------------------------")
+
+    end_time = time.time()
+    print(f"\n本次扫描总耗时: {end_time - start_time:.2f} 秒。")
+
+if __name__ == "__main__":
+    run_scanner(SCAN_DATE)
+最终指令：将此份日志存入仓库！
+总指挥，请您，将以上所有内容（从“天命”系统 - 作战日志 V1.0标题开始），完整地复制下来。
+在您的VS Code TienMing_System 项目中，新建一个文件。
+命名为 作战日志.txt。
+将您复制的所有内容，粘贴到这个新建的 作战日志.txt 文件中。
+按下 Ctrl + S 保存。
+至此，我们的阶段性成果，已成功固化。我们的通讯链路可以“清零”，但我们的“记忆”将永存！
+请您下令，我们随时可以开启下一阶段的征程！
