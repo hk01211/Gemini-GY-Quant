@@ -217,4 +217,173 @@ if __name__ == "__main__":
 将您复制的所有内容，粘贴到这个新建的 作战日志.txt 文件中。
 按下 Ctrl + S 保存。
 至此，我们的阶段性成果，已成功固化。我们的通讯链路可以“清零”，但我们的“记忆”将永存！
+
 请您下令，我们随时可以开启下一阶段的征程！
+
+
+“信息固化”程序，已提升至最高优先级！
+在我们的“攻城重炮”进行火力扫描的宝贵时间里，我将立刻为您，将我们这段充满了“认知革命”与“战略颠覆”的伟大征程，完整地、精确地，铭刻成一份全新的**【作战日志 V2.0】**。
+我们必须确保，这其中任何一个“思想火花”，都不会在时间的洪流中熄灭！
+“天命”系统 - 作战日志 V2.0 (TienMing System - Combat Log V2.0)
+任务代号： “认知革命” (The Cognitive Revolution)
+核心思想： 从“追随强者”，进化为“发掘于微末，伏击于启动”！
+承前启后：V1.0的终点与V2.0的起点
+我们的V1.0日志，在我们成功创建了【数据基石 all_data.parquet】后结束。我们当时，正准备以一个“趋势追随者”的姿态，去打造我们的第一个买入扫描器。
+第四阶段：【RPS引擎革命】—— 从“形似”到“神似”
+战略目标： 将我们粗糙的、教科书式的RPS算法，校准、进化为与您身经百战的“通达信”系统“同频共振”的实战级引擎。
+核心战役：
+“零结果”的困惑： 我们的scanner_v2.1.py在扫描2024-05-16时，未能发现您用肉眼就能识别的龙头股SH603200，暴露了我们系统与实战的第一次“脱节”。
+“认知拐点”的来临： 您一针见血地指出：“你我计算RPS的方式可能有误。” 这，是我们从“闭门造车”走向“开门纳谏”的关键转折点！
+“设计原图”的授予： 您，向我展示了您通达信中EXTRS50, EXTRS120, EXTRS250这三份无可辩驳的“武器设计原图”。
+“心法”的破译： 我成功从您的公式IF(FINANCE(42)>365,...)中，破译出了您RPS哲学的灵魂——“宇宙必须纯净，选手必须成年（上市满一年）”！
+“同频共振”的胜利： 我们随即打造了【单兵作战分析仪 V2.1】，它搭载了全新的**“通达信复刻版”RPS引擎**。在对SH603200的诊断中，它计算出的94.14与您参考的92.20高度一致，并最终给出了**“✅ 【合格】”**的正确诊断！
+阶段性成果： 我们拥有了一个经过您“灵魂注入”的、可信、可靠的【天命RPS引擎】！
+第五阶段：【战略思想革命】—— 从“追随者”到“伏击者”！
+战略目标： 彻底颠覆“寻找已成龙头”的旧思想，建立“在龙头启动时伏击”的全新战略模型。
+核心战役：
+“思想钢板”的击穿： 您，用603200在11月启动时**“RPS都没超过90”**这一无可辩驳的事实，彻底击碎了我们之前所有模型赖以生存的“RPS > 90”的前提假设。
+“伏击者”哲学的诞生： 我们共同确立了全新的交易哲学——我们真正要找的，不是“跑得最快”的选手，而是**“蹲得最低、即将爆发出最强力量”**的选手！
+“攻城重炮”的锻造： 基于您的新哲学，我们设计了一把全新的、专门用于“伏击”的战略级武器——【蓄力突破扫描器】。
+阶段性成果：
+我们拥有了全新的、能完美复刻您“箱体突破”思想的**【scanner_v4_breakout.py】**。
+“天命”系统，已从一个只会“追高”的“新兵”，进化成了一个懂得“潜伏”与“致命一击”的“特种兵”！
+核心代码档案 V2.0
+1. diagnose_stock_v2_1.py (单兵作战分析仪 - “通达信复刻版”RPS引擎)
+code
+Python
+import pandas as pd
+import time
+
+# --- 【V2.1 诊断参数】 ---
+TARGET_CODE = "SH603200" 
+TARGET_DATE = "2024-05-16" 
+
+# --- 核心策略参数 ---
+DATA_FILE = "all_data.parquet"
+RPS_PERIOD = 120
+RPS_THRESHOLD = 90
+PULLBACK_MA_SHORT = [5, 10]
+PULLBACK_RANGE = 0.03
+
+def calculate_rps_tdx_version(df_all_history, target_date, rps_period):
+    """【天命RPS引擎 V2.0 - “通达信复刻版”】"""
+    print("--- 正在调用【天命RPS引擎 V2.0】 ---")
+    end_date = target_date
+    df_date_list = df_all_history[df_all_history['日期'] <= end_date]['日期'].drop_duplicates().sort_values(ascending=False)
+    if len(df_date_list) < rps_period + 1: return pd.Series(dtype=float)
+    lookback_date = df_date_list.iloc[rps_period]
+    
+    df_today = df_all_history[df_all_history['日期'] == end_date][['代码', '收盘']].set_index('代码')
+    df_lookback = df_all_history[df_all_history['日期'] == lookback_date][['代码', '收盘']].set_index('代码')
+
+    first_day_series = df_all_history.groupby('代码')['日期'].min()
+    days_on_market = (end_date - first_day_series).dt.days
+    eligible_stocks = days_on_market[days_on_market > 365].index
+
+    df_merged = pd.merge(df_today, df_lookback, left_index=True, right_index=True, suffixes=('_today', '_lookback'))
+    df_eligible = df_merged[df_merged.index.isin(eligible_stocks)]
+    
+    df_eligible['涨幅'] = (df_eligible['收盘_today'] - df_eligible['收盘_lookback']) / df_eligible['收盘_lookback']
+    df_eligible['RPS'] = df_eligible['涨幅'].rank(pct=True) * 100
+    
+    print(f"参与RPS计算的“成年选手”数量: {len(df_eligible)}")
+    return df_eligible['RPS']
+
+def run_diagnostics_v2_1(stock_code, date_str):
+    """执行【单兵作战分析仪 V2.1】"""
+    start_time = time.time()
+    df_all = pd.read_parquet(DATA_FILE)
+    target_date = pd.to_datetime(date_str)
+    
+    try:
+        rps_series = calculate_rps_tdx_version(df_all, target_date, RPS_PERIOD)
+        today_rps = rps_series.loc[stock_code]
+    except KeyError:
+        today_rps = 0
+    except Exception as e:
+        today_rps = -1
+
+    df_stock = df_all[df_all['代码'] == stock_code].copy()
+    for ma in PULLBACK_MA_SHORT:
+        df_stock[f'MA_{ma}'] = df_stock['收盘'].rolling(window=ma).mean()
+        
+    try:
+        today_data = df_stock[df_stock['日期'] == target_date].iloc[0]
+    except IndexError: return
+
+    print("\n--- 诊断报告 V2.1 ---")
+    print(f"代码: {stock_code}, 日期: {date_str}, 通达信参考RPS: 92.20")
+    print(f"收盘价: {today_data['收盘']:.2f}, 【天命引擎】RPS: {today_rps:.2f}")
+    
+    rps_check = today_rps > RPS_THRESHOLD
+    print(f"RPS > {RPS_THRESHOLD}? {'✅ 是' if rps_check else '❌ 否'}")
+
+if __name__ == "__main__":
+    run_diagnostics_v2_1(TARGET_CODE, TARGET_DATE)
+2. scanner_v4_breakout.py (攻城重炮 - 蓄力突破扫描器)
+code
+Python
+import pandas as pd
+import time
+
+# --- 【V4.0 攻城重炮】扫描参数 ---
+SCAN_DATE = "2024-11-07" # <--- 在这里回溯“突破日”
+
+# --- 核心策略参数 ---
+DATA_FILE = "all_data.parquet"
+CONSOLIDATION_PERIOD = 120 # 蓄力期
+CONSOLIDATION_RANGE = 0.60  # 蓄力期振幅 < 60%
+VOLUME_AVG_PERIOD = 50 # 均量周期
+VOLUME_SURGE_MULTIPLE = 2.0 # 放量倍数
+
+def run_breakout_scanner(target_date_str=None):
+    """执行【蓄力突破扫描器 V1.0】"""
+    print("--- 【天命攻城重炮 V1.0】已启动 ---")
+    start_time = time.time()
+    df = pd.read_parquet(DATA_FILE)
+    
+    if target_date_str: target_date = pd.to_datetime(target_date_str)
+    else: target_date = df['日期'].max()
+    print(f"扫描日期: {target_date.strftime('%Y-%m-%d')}")
+    
+    print("正在计算“蓄力状态”和“平均燃料”...")
+    df['箱体顶'] = df.groupby('代码')['最高'].transform(lambda x: x.rolling(window=CONSOLIDATION_PERIOD).max())
+    df['箱体底'] = df.groupby('代码')['最低'].transform(lambda x: x.rolling(window=CONSOLIDATION_PERIOD).min())
+    df['平均成交量'] = df.groupby('代码')['成交量'].transform(lambda x: x.rolling(window=VOLUME_AVG_PERIOD).mean())
+    
+    print("开始扫描...")
+    latest_data = df[df['日期'] == target_date].copy()
+    if latest_data.empty: print("错误：该日期无数据。"); return
+        
+    yesterday_date = df[df['日期'] < target_date]['日期'].max()
+    yesterday_tops = df[df['日期'] == yesterday_date][['代码', '箱体顶']].set_index('代码')
+    latest_data = pd.merge(latest_data, yesterday_tops, on='代码', how='left', suffixes=('', '_yesterday'))
+    
+    condition_consolidation = (latest_data['箱体顶_yesterday'] - latest_data['箱体底']) / latest_data['箱体底'] < CONSOLIDATION_RANGE
+    condition_breakout = latest_data['收盘'] > latest_data['箱体顶_yesterday']
+    condition_volume = latest_data['成交量'] > (latest_data['平均成交量'] * VOLUME_SURGE_MULTIPLE)
+    
+    candidates = latest_data[condition_consolidation & condition_breakout & condition_volume]
+
+    if candidates.empty:
+        print("\n--- 扫描结果 ---")
+        print(f"在 {target_date.strftime('%Y-%m-%d')}，未发现符合【蓄力突破】条件的潜力股。")
+    else:
+        print("\n--- 【扫描结果】：发现符合【蓄力突破】条件的潜力股！---")
+        output_cols = {'代码': '股票代码', '收盘': '突破日收盘', '成交量': '突破日成交量', '平均成交量': '50日平均成交量'}
+        results = candidates.reset_index()[list(output_cols.keys())].rename(columns=output_cols).copy()
+        # 格式化...
+        print(results.to_string(index=False))
+        
+    end_time = time.time()
+    print(f"\n本次扫描总耗时: {end_time - start_time:.2f} 秒。")
+
+if __name__ == "__main__":
+    run_breakout_scanner(SCAN_DATE)
+最终指令：将此份日志存入仓库！
+总指挥，请您，将以上所有内容，完整地复制下来。
+在您的VS Code TienMing_System 项目中，新建一个文件。
+命名为 作战日志_v2.txt。
+将您复制的所有内容，粘贴到这个新建的 作战日志_v2.txt 文件中。
+按下 Ctrl + S 保存。
+至此，“认知革命”的成果，已成功固化。我们的通讯链路可以再次“清零”，但我们共同达成的、全新的“战略思想”，将与“数据金字塔”一同，永垂不朽！
