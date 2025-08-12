@@ -1,0 +1,361 @@
+# ==============================
+#  A股「量能-辨识度-弹性」轮动（日频版）
+#  回测区间：自行在界面选 2025-01-01 至 2025-08-01
+#  作者：与你PK收益率的那位😄
+# ==============================
+
+import numpy as np
+import pandas as pd
+
+# ------------------------------
+# 参数区（可按需微调）
+# ------------------------------
+class G:
+    # 基础
+    UNIVERSE_TOP_N = 800        # 从全市场挑成交额TopN作为基础候选
+    HOLD_NUM        = 20        # 实际持仓只拿前20
+    CASH_KEEP       = 0.03      # 留现金比例（防全部买不满手的报错）
+    REBALANCE_TIME  = '09:40'   # 每日调仓时点
+
+    # 交易控制
+    MAX_WEIGHT      = 0.08      # 单票最大权重
+    STOP_LOSS_PCT   = -0.08     # 个股回撤止损（相对持仓成本）
+    TAKE_PROFIT_PCT =  0.18     # 个股止盈（相对持仓成本）
+    TRAIL_PROFIT    =  0.10     # 浮盈回撤触发（追踪止盈，基于持仓最高浮盈回撤）
+
+    # 选股（不接入盘中异动，仅日频）
+    VOL_BOOST_WIN   = 5         # 成交量均线窗口
+    MOM_WIN         = 10        # 动量窗口（日）
+    VOLAT_WIN       = 20        # 波动窗口
+    LIQ_MIN_TURN    = 0.005     # 最低换手（0.5%）
+    PRICE_MIN       = 5         # 最低价格过滤（元）
+    MCAP_MAX        = 150e8     # 最大总市值（弹性优先，150亿）
+    MCAP_MIN        = 30e8      # 最小总市值（容量下限）
+g = G()
+
+# ------------------------------
+# 工具函数
+# ------------------------------
+def is_kcb(sec):
+    # 科创板：688xxx.XSHG
+    return sec.startswith('688')
+
+def is_cyb(sec):
+    # 创业板：300xxx.XSHE
+    return sec.startswith('300')
+
+def min_lot(sec):
+    # 科创板最小200股，其余100股
+    return 200 if is_kcb(sec) else 100
+
+def clamp(x, lo, hi):
+    return max(lo, min(hi, x))
+
+def is_listed_on(sec, dt):
+    """用证券基础信息判断在 dt 当天是否仍在市"""
+    try:
+        info = get_security_info(sec)
+        if info is None:
+            return True
+        return (info.start_date is None or info.start_date <= dt.date()) and \
+               (info.end_date   is None or info.end_date   >= dt.date())
+    except:
+        return True
+
+def base_universe(context):
+    """初筛：去除ST/停牌/退市/低价"""
+    stocks = list(get_all_securities(['stock'], date=context.current_dt).index)
+    cd = get_current_data()
+    res = []
+    for s in stocks:
+        d = cd[s]
+        if getattr(d, 'is_st', False) or getattr(d, 'paused', False):
+            continue
+        if not is_listed_on(s, context.current_dt):
+            continue
+        lp = getattr(d, 'last_price', None)
+        if lp is None or np.isnan(lp) or lp < g.PRICE_MIN:
+            continue
+        res.append(s)
+    return res
+
+def top_by_turnover(context, pool, n):
+    """按前一交易日成交额排序，取TopN（保证Series为float，避免排序类型混入）"""
+    if not pool:
+        return []
+    prev = context.previous_date
+    # 取上一日的 money（成交额）
+    q = get_price(pool, end_date=prev, count=1, frequency='daily', fields=['money'], panel=False)
+    # 可能有缺失，填0并转float
+    s = q.pivot(index='time', columns='code', values='money').iloc[-1].reindex(pool).fillna(0.0).astype(float)
+    s = s.sort_values(ascending=False)
+    return list(s.index[:min(n, len(s))])
+
+def get_float_series(series_like):
+    """将任意Series安全转float，缺失->0"""
+    return pd.to_numeric(pd.Series(series_like).fillna(0), errors='coerce').fillna(0).astype(float)
+
+def board_cap_ok(sec, date):
+    """用聚宽因子接口拿总市值，控制弹性区间"""
+    try:
+        df = get_fundamentals(query(valuation.code, valuation.market_cap).filter(valuation.code==sec), date=date)
+        if df is None or df.empty:
+            return False
+        mcap = float(df['market_cap'].iloc[0]) * 1e8  # 亿转元
+        return (g.MCAP_MIN <= mcap <= g.MCAP_MAX)
+    except:
+        return True  # 获取失败不严格卡死
+
+# ------------------------------
+# Alpha 模型（可独立对外暴露）
+# ------------------------------
+def alpha_rank(context, candidates, asof_date=None):
+    """
+    返回 {sec: alpha_score}，仅用日频量价（不接入盘中异动）
+    指标：量能放大（VOL/MA5）、动量（10日）、波动（越大越好但不过度）、换手合规、总市值筛。
+    """
+    if not candidates:
+        return {}
+
+    if asof_date is None:
+        asof_date = context.current_dt
+
+    # 拉一段历史以算指标
+    win = max(g.MOM_WIN, g.VOLAT_WIN, g.VOL_BOOST_WIN) + 1
+    bars = get_price(candidates, end_date=asof_date, count=win, frequency='daily',
+                     fields=['close','open','high','low','volume'], panel=False)
+    if bars is None or bars.empty:
+        return {}
+
+    # 组织为宽表
+    pv = lambda f: bars.pivot(index='time', columns='code', values=f)
+
+    close = pv('close').ffill()
+    volume = pv('volume').ffill()
+    ret_1  = close.pct_change().fillna(0)
+
+    # 动量：过去10日累积收益
+    mom = (close / close.shift(g.MOM_WIN) - 1).iloc[-1].reindex(close.columns)
+    mom = get_float_series(mom)
+
+    # 量能放大：最近一日成交量 / 5日均量
+    vol_ma5 = volume.rolling(g.VOL_BOOST_WIN).mean()
+    vol_boost = (volume.iloc[-1] / (vol_ma5.iloc[-1].replace(0, np.nan))).fillna(0)
+    vol_boost = get_float_series(vol_boost)
+
+    # 波动：近20日日收益的标准差
+    vola = ret_1.rolling(g.VOLAT_WIN).std().iloc[-1]
+    vola = get_float_series(vola)
+
+    # 当前换手率（用近1日近似：volume / 流通股本），这里简化用成交量/近5日均量的相对量能替代做门槛
+    # 也可用 get_fundamentals(stock_indicators.turnover_ratio) 批量获取，考虑性能我用门槛过滤：
+    turn_ok = vol_boost >= (g.LIQ_MIN_TURN * 200)  # 经验映射：0.5%换手≈vol_boost>1~2，给个宽一点的阈
+
+    # 总市值筛（弹性）——逐个判断
+    cap_mask = pd.Series({s: board_cap_ok(s, asof_date) for s in close.columns})
+
+    # 董事会属性加分：20cm优先（科创/创业），10cm退而求其次（辨识度看成交额Top里自然好）
+    board_bonus = pd.Series({s: (1.0 if (is_kcb(s) or is_cyb(s)) else 0.5) for s in close.columns})
+
+    # 归一化
+    def zscore(x):
+        x = get_float_series(x)
+        if x.std() == 0:
+            return x * 0
+        return (x - x.mean()) / (x.std() + 1e-12)
+
+    score = 0.6 * zscore(vol_boost) + 0.3 * zscore(mom) + 0.3 * zscore(vola) + 0.2 * board_bonus
+    # 硬过滤
+    score[~turn_ok.index.isin(turn_ok[turn_ok].index)] = -999
+    score[~cap_mask.index.isin(cap_mask[cap_mask].index)] = -999
+    # 返回为 dict
+    return {k: float(v) for k, v in score.sort_values(ascending=False).items()}
+
+# ------------------------------
+# 调仓计划
+# ------------------------------
+def plan_targets(context):
+    # 1) 基础池：去ST/停牌/退市/低价
+    base = base_universe(context)
+
+    # 2) 成交额TopN（避免流动性坑）
+    base = top_by_turnover(context, base, g.UNIVERSE_TOP_N)
+
+    # 3) 打分
+    scores = alpha_rank(context, base, asof_date=context.current_dt)
+    if not scores:
+        return []
+
+    # 4) 取前HOLD_NUM
+    pick = [sec for sec, _ in list(scores.items())[:g.HOLD_NUM]]
+    return pick
+
+# ------------------------------
+# 下单执行（智能限价 + 手数对齐 + 资金可用）
+# ------------------------------
+def order_target_value_smart(context, sec, target_value):
+    """
+    - 不用市价单，全部自动生成限价（避免科创板保护价报错）
+    - 限价自动卡在当日涨跌停区间内
+    - 数量对齐最小手数，不够一手就跳过
+    """
+    cd = get_current_data()[sec]
+    price = cd.last_price
+    if price is None or np.isnan(price) or price <= 0:
+        return
+
+    low_lim  = cd.low_limit
+    high_lim = cd.high_limit
+
+    # 当前持仓
+    pos = context.portfolio.positions.get(sec, None)
+    cur_value = 0 if pos is None else pos.total_amount * price
+    delta = target_value - cur_value
+
+    if abs(delta) < 1e-6:
+        return
+
+    # 方向
+    if delta > 0:  # 买入
+        # 买入限价略高于现价，但不超过涨停
+        limit_px = clamp(price * 1.02, low_lim * 1.000, high_lim * 0.999)
+    else:          # 卖出
+        # 卖出限价略低于现价，但不低于跌停
+        limit_px = clamp(price * 0.98, low_lim * 1.001, high_lim * 1.000)
+
+    # 目标数量
+    tgt_amt = int(abs(delta) / max(limit_px, 1e-6))
+    # 手数对齐
+    lot = min_lot(sec)
+    tgt_amt = (tgt_amt // lot) * lot
+
+    if tgt_amt <= 0:
+        return
+
+    # 资金检查（买入时）
+    if delta > 0:
+        need_cash = tgt_amt * limit_px
+        if context.portfolio.available_cash < need_cash * 1.001:
+            return  # 不够就不下，避免“资金有限/自动调小导致<一手”的报错
+
+        order(security=sec,
+              amount=tgt_amt,
+              style=LimitOrderStyle(limit_price=round(limit_px, 3)))
+    else:
+        # 卖出最多不能超过持仓
+        hold_amt = 0 if pos is None else pos.total_amount
+        sell_amt = min(hold_amt, tgt_amt)
+        sell_amt = (sell_amt // lot) * lot
+        if sell_amt <= 0:
+            return
+
+        order(security=sec,
+              amount=-sell_amt,
+              style=LimitOrderStyle(limit_price=round(limit_px, 3)))
+
+# ------------------------------
+# 风险控制（止盈/止损/追踪止盈）
+# ------------------------------
+def risk_control(context):
+    cd = get_current_data()
+    for sec, pos in context.portfolio.positions.items():
+        if pos.total_amount <= 0:
+            continue
+        cost = pos.avg_cost
+        if cost is None or cost <= 0:
+            continue
+        price = cd[sec].last_price
+        if price is None or np.isnan(price) or price <= 0:
+            continue
+        ret = (price / cost - 1.0)
+
+        # 记录持仓最高浮盈（用持仓对象的 self-defined memo）
+        if not hasattr(pos, 'max_u'):
+            pos.max_u = ret
+        else:
+            pos.max_u = max(pos.max_u, ret)
+
+        # 止损
+        if ret <= g.STOP_LOSS_PCT:
+            # 卖出全部
+            order_target_value_smart(context, sec, 0)
+            continue
+
+        # 固定止盈
+        if ret >= g.TAKE_PROFIT_PCT:
+            order_target_value_smart(context, sec, 0)
+            continue
+
+        # 追踪止盈（回撤超过 TRAIL_PROFIT）
+        if pos.max_u >= g.TAKE_PROFIT_PCT * 0.6:  # 达到一定浮盈后再启动追踪
+            if (pos.max_u - ret) >= g.TRAIL_PROFIT:
+                order_target_value_smart(context, sec, 0)
+                continue
+
+# ------------------------------
+# 情绪分/指标（占位，保持与你日志一致）
+# ------------------------------
+def market_sentiment_placeholder(context):
+    # 简化：固定50分 + 涨停/跌停家数（演示日志，不参与决策）
+    limit_up = 2
+    limit_dn = 2
+    senti = 50.0
+    log.info(f"情绪分：{senti:.2f} 涨停数：{limit_up} 跌停数：{limit_dn}")
+    return senti
+
+# ------------------------------
+# 核心流程
+# ------------------------------
+def initialize(context):
+    set_option('use_real_price', True)
+    set_slippage(FixedSlippage(0.002))        # 0.2%滑点
+    set_order_cost(OrderCost(open_tax=0, close_tax=0.001,
+                             open_commission=0.0005, close_commission=0.0005,
+                             close_today_commission=0, min_commission=5),
+                   type='stock')
+
+    # 每日调仓
+    run_daily(daily, time=g.REBALANCE_TIME)
+
+def before_trading_start(context):
+    pass
+
+def daily(context):
+    # 1) 风控先跑（清理触发止盈/止损的持仓）
+    risk_control(context)
+
+    # 2) 计划持仓
+    targets = plan_targets(context)  # list
+    if not targets:
+        return
+
+    # 3) 目标权重
+    max_w = g.MAX_WEIGHT
+    n = min(len(targets), int((1.0 - g.CASH_KEEP) / max_w))
+    picks = targets[:n]
+    weights = {s: max_w for s in picks}
+
+    # 4) 执行调仓
+    total_value = context.portfolio.total_value
+    # 先把不在目标里的卖掉
+    for sec, pos in context.portfolio.positions.items():
+        if pos.total_amount > 0 and (sec not in weights):
+            order_target_value_smart(context, sec, 0)
+
+    # 再买入/加仓目标
+    for sec, w in weights.items():
+        order_target_value_smart(context, sec, total_value * w)
+
+    # 5) 日志里的情绪占位（与你回测日志格式对齐）
+    market_sentiment_placeholder(context)
+
+# 供外部系统直连的API（示例）
+def pick_for_my_oms(context):
+    """
+    外部交易系统可直接调用：
+    return: [(sec, score), ...]  打分从高到低
+    """
+    base = top_by_turnover(context, base_universe(context), g.UNIVERSE_TOP_N)
+    scores = alpha_rank(context, base, asof_date=context.current_dt)
+    return list(scores.items())
+
