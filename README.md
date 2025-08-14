@@ -332,3 +332,206 @@ def run_final_scanner_true(target_date_str=None):
 if __name__ == "__main__":
     run_final_scanner_true(SCAN_DATE)
 
+
+# === 天命歼星炮 (最终决战版 V4.1 - 完美体) ===
+# 核心: 采用“集团冲锋”模式，并修复所有已知BUG
+# 作者: Gemini & GY
+# 日期: 2025-08-14
+
+import pandas as pd
+import numpy as np
+import time
+from numba import cuda, NumbaPerformanceWarning
+import warnings
+import os
+import mplfinance as mpf
+import matplotlib
+from tqdm import tqdm
+import matplotlib.pyplot as plt # 【V4.1 修复】为“鹰眼”配备“画笔”！
+
+matplotlib.use('Agg')
+warnings.simplefilter('ignore', category=NumbaPerformanceWarning)
+
+# --- 参数仪表盘 ---
+SCAN_START_DATE = ""
+SCAN_END_DATE = ""
+
+# --- 核心武器库 ---
+DATA_FILE = "all_data.parquet"
+SECTOR_MAP_FILE = "sector_map.csv"
+CONSOLIDATION_PERIOD = 120
+CONSOLIDATION_RANGE = 0.60
+VOLUME_AVG_PERIOD = 50
+VOLUME_SURGE_MULTIPLE = 2.0
+TOP_N_TO_SHOW = 5
+ELITE_QUANTILE = 0.8
+
+@cuda.jit
+def gpu_group_calculator(high, low, vol, group_starts, top, bot, avg, p_c, p_v):
+    idx = cuda.grid(1)
+    if idx >= high.size: return
+    group_start_idx = -1
+    for i in range(group_starts.size - 1, -1, -1):
+        if idx >= group_starts[i]:
+            group_start_idx = group_starts[i]
+            break
+    if group_start_idx == -1: return
+    start_consol = max(group_start_idx, idx - p_c + 1)
+    window_consol_high, window_consol_low = -1.0, 999999.0
+    for i in range(start_consol, idx + 1):
+        if high[i] > window_consol_high: window_consol_high = high[i]
+        if low[i] < window_consol_low: window_consol_low = low[i]
+    top[idx], bot[idx] = window_consol_high, window_consol_low
+    start_vol = max(group_start_idx, idx - p_v + 1)
+    sum_vol, count_vol = 0.0, 0
+    for i in range(start_vol, idx + 1):
+        sum_vol += vol[i]; count_vol += 1
+    avg[idx] = sum_vol / count_vol if count_vol > 0 else 0
+
+def plot_candlestick_chart(df_stock, candidate_row, output_folder):
+    try:
+        plot_df = df_stock.copy()
+        plot_df.rename(columns={'开盘': 'Open', '最高': 'High', '最低': 'Low', '收盘': 'Close', '成交量': 'Volume'}, inplace=True)
+        plot_df['日期'] = pd.to_datetime(plot_df['日期'])
+        plot_df.set_index('日期', inplace=True)
+        scan_date = pd.to_datetime(candidate_row['扫描日期'])
+        plot_window = plot_df.loc[scan_date - pd.DateOffset(days=180): scan_date + pd.DateOffset(days=10)]
+        if plot_window.empty: return
+        breakout_line = [scan_date.strftime('%Y-%m-%d')]
+        box_top = candidate_row['箱体顶_yesterday']
+        box_bottom = candidate_row['箱体底']
+        box_lines_data = []
+        if pd.notna(box_top) and pd.notna(box_bottom):
+             box_lines_data = [
+                (plot_window.index[0].strftime('%Y-%m-%d'), box_top), (breakout_line[0], box_top),
+                (plot_window.index[0].strftime('%Y-%m-%d'), box_bottom), (breakout_line[0], box_bottom)
+             ]
+        mc = mpf.make_marketcolors(up='r', down='g', inherit=True)
+        style = mpf.make_mpf_style(marketcolors=mc, gridstyle='-.')
+        fig, axes = mpf.plot(
+            plot_window, type='candle', style=style,
+            title=f"\n{candidate_row['代码']} - {candidate_row['扫描日期']}",
+            ylabel='Price', volume=True, ylabel_lower='Volume',
+            mav=(5, 10, 20, 60),
+            alines=dict(alines=box_lines_data, colors=['gray', 'gray'], linestyle='--'),
+            vlines=dict(vlines=breakout_line, colors='blue', linestyle='-.'),
+            figsize=(16, 8), returnfig=True)
+        save_path = os.path.join(output_folder, f"{candidate_row['代码']}.png")
+        fig.savefig(save_path)
+        plt.close(fig) #【V4.1 修复】在这里，我们需要plt
+        print(f"  ✅ 已生成K线图: {save_path}")
+    except Exception as e:
+        print(f"  ❌ 绘制 {candidate_row['代码']} K线图失败: {e}")
+
+def apply_final_filters(candidates_df, sector_map_df):
+    print("\n--- 【终极过滤器】：正在对初步结果进行“头狼”筛选... ---")
+    candidates_df['前收盘'] = candidates_df['收盘'] / (1 + candidates_df['pct_change'])
+    candidates_df['涨幅'] = (candidates_df['收盘'] - candidates_df['前收盘']) / candidates_df['前收盘']
+    top_quantile = candidates_df['涨幅'].quantile(ELITE_QUANTILE)
+    elite_candidates = candidates_df[candidates_df['涨幅'] >= top_quantile].copy()
+    print(f"  ✅ 【身位过滤】完成：从 {len(candidates_df)} 只潜力股中，筛选出 {len(elite_candidates)} 只“精英预备队”。")
+    elite_with_sector = pd.merge(elite_candidates, sector_map_df, on='代码', how='left')
+    elite_with_sector['板块名称'].fillna('未分类', inplace=True)
+    sector_counts = elite_with_sector['板块名称'].value_counts()
+    wolf_packs = sector_counts[sector_counts >= 2]
+    final_selection = pd.DataFrame()
+    if not wolf_packs.empty:
+        wolf_pack_name = wolf_packs.index[0]
+        print(f"  ✅ 【板块聚焦】完成：发现“狼群”！主战场在: ['{wolf_pack_name}']")
+        final_selection = elite_with_sector[elite_with_sector['板块名称'] == wolf_pack_name]
+    elif not elite_with_sector.empty:
+        print("  ⚠️ 【板块聚焦】完成：未发现“狼群”，执行“孤狼”战术。")
+        final_selection = elite_with_sector.sort_values(by='涨幅', ascending=False).head(1)
+    return final_selection.sort_values(by='涨幅', ascending=False)
+
+if __name__ == "__main__":
+    overall_start_time = time.time()
+    print("--- 正在加载并预处理数据金字塔... ---")
+    try:
+        df_all = pd.read_parquet(DATA_FILE)
+        df_all['日期'] = pd.to_datetime(df_all['日期'])
+        df_all = df_all.sort_values(by=['代码', '日期']).reset_index(drop=True)
+    except Exception as e:
+        print(f"!! 致命错误：无法加载数据金字塔 '{DATA_FILE}'！错误: {e}")
+        exit()
+
+    target_date = df_all['日期'].max()
+    print(f"\n--- 正在扫描最新日期: {target_date.strftime('%Y-%m-%d')} ---")
+
+    print("--- 正在集结“集团军”，准备一次性上载GPU... ---")
+    high_host = df_all['最高'].to_numpy(dtype=np.float32)
+    low_host = df_all['最低'].to_numpy(dtype=np.float32)
+    volume_host = df_all['成交量'].to_numpy(dtype=np.float32)
+    group_starts = np.where(df_all['代码'].ne(df_all['代码'].shift()))[0]
+    
+    out_box_tops_host = np.empty_like(high_host)
+    out_box_bottoms_host = np.empty_like(high_host)
+    out_vol_avg_host = np.empty_like(high_host)
+    
+    print("--- “集团军”已上载！GPU战争熔炉，启动！---")
+    start_gpu_time = time.time()
+    threads_per_block = 256
+    blocks_per_grid = (high_host.size + (threads_per_block - 1)) // threads_per_block
+    gpu_group_calculator[blocks_per_grid, threads_per_block](high_host, low_host, volume_host, group_starts, out_box_tops_host, out_box_bottoms_host, out_vol_avg_host, CONSOLIDATION_PERIOD, VOLUME_AVG_PERIOD)
+    print(f"--- GPU计算完成！耗时: {time.time() - start_gpu_time:.2f} 秒 ---")
+
+    df_all['箱体顶'] = out_box_tops_host
+    df_all['箱体底'] = out_box_bottoms_host
+    df_all['平均成交量'] = out_vol_avg_host
+    
+    print("开始在最终计算结果上执行筛选...")
+    df_all['pct_change'] = df_all.groupby('代码')['收盘'].pct_change()
+    latest_data = df_all[df_all['日期'] == target_date].copy()
+    
+    yesterday_date = df_all[df_all['日期'] < target_date]['日期'].max()
+    yesterday_tops_df = df_all[df_all['日期'] == yesterday_date][['代码', '箱体顶']].rename(columns={'箱体顶': '箱体顶_yesterday'})
+    latest_data = pd.merge(latest_data, yesterday_tops_df, on='代码', how='left')
+    latest_data.dropna(subset=['箱体顶', '箱体底', '平均成交量', '箱体顶_yesterday', 'pct_change'], inplace=True)
+
+    condition_consolidation = (latest_data['箱体顶_yesterday'] - latest_data['箱体底']) / latest_data['箱体底'] < CONSOLIDATION_RANGE
+    condition_breakout = latest_data['收盘'] > latest_data['箱体顶_yesterday']
+    condition_volume = latest_data['成交量'] > (latest_data['平均成交量'] * VOLUME_SURGE_MULTIPLE)
+    candidates = latest_data[condition_consolidation & condition_breakout & condition_volume]
+
+    if candidates.empty:
+        print(f"--- 扫描结果 ---: 在 {target_date.strftime('%Y-%m-%d')}，未发现符合条件的潜力股。")
+    else:
+        try:
+            sector_map = pd.read_csv(SECTOR_MAP_FILE, dtype={'代码': str})
+            sector_map['代码'] = sector_map['代码'].apply(lambda x: str(x).zfill(6))
+            sector_map['代码'] = np.where(sector_map['代码'].str.startswith('6'), 'SH' + sector_map['代码'], 'SZ' + sector_map['代码'])
+            final_candidates = apply_final_filters(candidates, sector_map)
+        except FileNotFoundError:
+            print(f"\n!! 警告：找不到“灵魂地图” {SECTOR_MAP_FILE}！将跳过“板块聚焦”！")
+            final_candidates = candidates
+
+        if final_candidates.empty:
+            print(f"--- 最终扫描结果 ---: 经过“终极过滤”，在 {target_date.strftime('%Y-%m-%d')} 无值得出手的“头狼”。")
+        else:
+            print(f"\n--- 【最终扫描结果】：在 {target_date.strftime('%Y-%m-%d')} 发现“头狼”！---")
+            output_cols = {'代码': '股票代码', '板块名称':'所属板块', '收盘': '突破日收盘', '涨幅': '当日涨幅'}
+            if '板块名称' not in final_candidates.columns:
+                output_cols = {'代码': '股票代码', '收盘': '突破日收盘', '涨幅': '当日涨幅'}
+            
+            # 格式化输出
+            results_to_print = final_candidates[list(output_cols.keys())].rename(columns=output_cols).copy()
+            results_to_print['当日涨幅'] = results_to_print['当日涨幅'].map('{:.2%}'.format)
+            print(results_to_print.to_string(index=False))
+            
+            print("\n--- 【鹰眼系统】只为“头狼”绘制K线图 ---")
+            results_folder = f"scan_results_{target_date.strftime('%Y%m%d')}_focused"
+            if not os.path.exists(results_folder):
+                os.makedirs(results_folder)
+            print(f"所有K线图将被保存在文件夹: ./{results_folder}/")
+            
+            final_candidates_to_plot = final_candidates.head(TOP_N_TO_SHOW).copy()
+            final_candidates_to_plot['扫描日期'] = target_date.strftime('%Y-%m-%d')
+            
+            for index, row in final_candidates_to_plot.iterrows():
+                stock_code_to_plot = row['代码']
+                stock_data_for_plot = df_all[df_all['代码'] == stock_code_to_plot]
+                plot_candlestick_chart(stock_data_for_plot, row, results_folder)
+
+    print(f"\n--- 本次扫描总耗时: {time.time() - overall_start_time:.2f} 秒 ---")
+
+
